@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from './store'
 import { CalendarView } from './components/CalendarView'
 import { EntryDialog } from './components/EntryDialog'
 import { ProjectsPanel } from './components/ProjectsPanel'
+import { TimerPanel } from './components/TimerPanel'
 import type { UtcRange } from '../shared/calendar'
-import { formatLocalTime } from '../shared/calendar'
+import { formatLocalTime, snapRangeUtc, toZ } from '../shared/calendar'
 import type { PlatformApi } from '../platform/api'
 import { totalsForRange, plannedMinutesForRange } from '../shared/sums'
 import { weekRangeUtc } from '../shared/calendar'
@@ -49,6 +50,32 @@ export function App({ platform }: { platform: PlatformApi }): JSX.Element {
   const plannedCount = plannedForRange(db.entries, week, nowMs).length
   const plannedMinutes = plannedMinutesForRange(db.entries, week.start, week.end, now.toISOString())
 
+  // Горячие клавиши (ТЗ §4 M3, только десктоп — флаг hasHotkeys): Cmd/Ctrl+N — новый блок
+  // на час от текущего момента, Space — переключение таймера (в поле ввода не перехватываем),
+  // Cmd/Ctrl+E — задел: экспорт подключим на M4, клавиша уже перехватывается.
+  useEffect(() => {
+    if (platform === null || !platform.flags.hasHotkeys) return
+    const onKey = (e: KeyboardEvent): void => {
+      const t: EventTarget | null = e.target
+      const inField =
+        t instanceof HTMLElement && (t.closest('input, textarea, select') !== null || t.isContentEditable)
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault() // Cmd+N не должен рождать окно Electron
+        const anchor = Date.now()
+        setDialog({ kind: 'create', range: snapRangeUtc(toZ(anchor), toZ(anchor + 3_600_000)) })
+      } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault()
+        useStore.setState({ banner: 'Экспорт CSV появится на этапе M4 (клавиша уже перехвачена)' })
+      } else if (e.key === ' ' && !mod && !e.repeat && !inField) {
+        e.preventDefault() // Space не должен скроллить страницу, когда он горячая клавиша
+        useStore.getState().toggleTimer()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [platform])
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -64,6 +91,7 @@ export function App({ platform }: { platform: PlatformApi }): JSX.Element {
           <button type="button" className="ghost" onClick={() => setDialog({ kind: 'projects' })}>
             Проекты
           </button>
+          <TimerPanel />
         </div>
       </header>
 

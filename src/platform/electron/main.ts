@@ -6,12 +6,14 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { LoadOutcome } from '../api'
 import { dataDir, loadDbOutcome, parseAndValidate, saveDbFile } from './storage'
+import { createTray, type TrayController } from './tray'
 
 const isDev = !app.isPackaged
 const smoke = process.env['TZ_SMOKE_SHOT'] === '1'
 
 let mainWindow: BrowserWindow | null = null
 let lastLoad: LoadOutcome = { kind: 'empty' }
+let trayCtl: TrayController | null = null
 
 function rendererEntry(): string {
   const devUrl = process.env['ELECTRON_RENDERER_URL']
@@ -44,6 +46,12 @@ function createWindow(): void {
   })
   mainWindow = win
   const wc = win.webContents
+
+  // M3: крестик прячет окно в трей; полное завершение — только «Выход» из меню трея.
+  trayCtl = createTray(win)
+  ipcMain.on('timer:active', (event, active: unknown) => {
+    if (typeof active === 'boolean' && event.sender === wc) trayCtl?.setTimerActive(active)
+  })
 
   // Никаких новых окон; внешние https-ссылки — через shell.openExternal (ТЗ §6).
   wc.setWindowOpenHandler(({ url }) => {
@@ -115,7 +123,37 @@ function createWindow(): void {
           firstEvent: document.querySelector('.fc-event')?.textContent ?? null,
           status: document.querySelector('[data-testid="status"]')?.textContent ?? null,
         }))()`)
-        console.log(`[main] smoke шаг 3 (после перезагрузки): ${JSON.stringify(step2)}`)
+        console.log(`[main] smoke шаг 3 (записи из bridge видны): ${JSON.stringify(step2)}`)
+        await wc.executeJavaScript(
+          `(() => { const b = document.querySelector('[data-testid="timer-start"]'); if (!b) throw new Error('нет кнопки Старт'); b.click(); return 'started'; })()`,
+        )
+        await sleep(1500)
+        const grew = await wc.executeJavaScript(
+          `document.querySelector('[data-testid="timer-elapsed"]')?.textContent ?? null`,
+        )
+        console.log(`[main] smoke шаг 3b: таймер запущен, выросло до: ${String(grew)}`)
+        const reloaded2 = new Promise<void>((resolve) => wc.once('did-finish-load', () => resolve()))
+        wc.reload()
+        await reloaded2
+        await sleep(1500)
+        const timerAlive = await wc.executeJavaScript(`(() => ({
+          timerStillRunning: Boolean(document.querySelector('[data-testid="timer-active"]')),
+          timerBlock: Boolean(document.querySelector('.tz-event--timer')),
+          status: document.querySelector('[data-testid="status"]')?.textContent ?? null,
+        }))()`)
+        console.log(`[main] smoke шаг 3c (таймер пережил перезапуск): ${JSON.stringify(timerAlive)}`)
+        await wc.executeJavaScript(
+          `(() => { const b = document.querySelector('[data-testid="timer-stop"]'); if (!b) throw new Error('таймер не пережил перезапуск'); b.click(); return 'stopped'; })()`,
+        )
+        await sleep(900)
+        const stopCheck = await wc.executeJavaScript(`(async () => {
+          const res = await window.tzPlatform.loadDb();
+          const db = res.db;
+          const e = [...db.entries].reverse().find((x) => x.title === 'Задача');
+          return { timerAfterStop: db.timer, entries: db.entries.length, hasTimerEntry: Boolean(e),
+            durSec: e ? Math.round((Date.parse(e.end) - Date.parse(e.start)) / 1000) : null };
+        })()`)
+        console.log(`[main] smoke шаг 3d (стоп — ровно один Entry): ${JSON.stringify(stopCheck)}`)
         await wc.executeJavaScript(
           `(() => { const b = document.querySelector('.fc-next-button'); if (!b) throw new Error('нет .fc-next-button'); b.click(); return 'ok'; })()`,
         )
@@ -125,7 +163,14 @@ function createWindow(): void {
           plannedBadge: document.querySelector('[data-testid="planned-total"]')?.textContent ?? null,
         }))()`)
         console.log(`[main] smoke шаг 4 (неделя вперёд): ${JSON.stringify(step3)}`)
-        return wc.capturePage()
+        const image = await wc.capturePage()
+        // Крестик (закрытие окна) = в трей: окно скрыто, процесс жив (ТЗ §4 M3).
+        win.close()
+        await sleep(400)
+        console.log(
+          `[main] smoke: закрытие крестиком — окно видно: ${String(win.isVisible())}, процесс жив: ${String(!win.isDestroyed())}`,
+        )
+        return image
       }
       void assertRenderer()
         .then((image) => {

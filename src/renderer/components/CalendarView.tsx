@@ -9,8 +9,9 @@ import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import ruLocale from '@fullcalendar/core/locales/ru'
 import { snapRangeUtc, type UtcRange } from '../../shared/calendar'
 import { isPlanned } from '../../shared/planning'
+import { timerLiveRange } from '../../shared/timer'
 import { selectProjectById, useStore } from '../store'
-import type { DbFile } from '../../shared/db'
+import type { DbFile, RunningTimer } from '../../shared/db'
 
 type Props = {
   onPickRange: (range: UtcRange) => void
@@ -39,13 +40,36 @@ function eventsFrom(db: DbFile, nowMs: number) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+// Виртуальный «растущий» блок таймера (ТЗ §4 M3): не Entry, в БД не пишется;
+// клик и перетаскивание по нему не работают.
+function timerEventInput(db: DbFile, timer: RunningTimer, nowMs: number) {
+  const range = timerLiveRange(timer, nowMs)
+  if (timer === null || range === null || Date.parse(range.end) <= Date.parse(range.start)) return []
+  const project = selectProjectById(db, timer.projectId)
+  return [
+    {
+      id: '@timer',
+      start: range.start,
+      end: range.end,
+      title: `⏱ ${timer.title}`,
+      backgroundColor: project?.color ?? '#3d7ea6',
+      classNames: ['tz-event', 'tz-event--timer'],
+      startEditable: false,
+      durationEditable: false,
+    },
+  ]
+}
+
 export function CalendarView({ onPickRange, onOpenEntry, readonly }: Props): JSX.Element {
   const db = useStore((s) => s.db)
   const nowMs = useStore((s) => s.now)
   const updateEntry = useStore((s) => s.updateEntry)
   const calRef = useRef<FullCalendar>(null)
   const [pickedDate, setPickedDate] = useState('')
-  const events = useMemo(() => eventsFrom(db, nowMs), [db, nowMs])
+  const events = useMemo(
+    () => [...eventsFrom(db, nowMs), ...timerEventInput(db, db.timer, nowMs)],
+    [db, nowMs],
+  )
 
   const applyRange = (id: string, startIso: string, endIso: string, revert: () => void): void => {
     const before = useStore.getState().db.entries.find((e) => e.id === id)
@@ -100,7 +124,10 @@ export function CalendarView({ onPickRange, onOpenEntry, readonly }: Props): JSX
           if (arg.start === null || arg.end === null) return
           onPickRange(snapRangeUtc(arg.start.toISOString(), arg.end.toISOString()))
         }}
-        eventClick={(arg: EventClickArg) => onOpenEntry(arg.event.id)}
+        eventClick={(arg: EventClickArg) => {
+          if (arg.event.id === '@timer') return
+          onOpenEntry(arg.event.id)
+        }}
         eventDrop={(arg: EventDropArg) => {
           const { start, end } = arg.event
           if (start !== null && end !== null) applyRange(arg.event.id, start.toISOString(), end.toISOString(), () => arg.revert())

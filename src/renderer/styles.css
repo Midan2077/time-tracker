@@ -168,6 +168,57 @@ button:hover {
   border-style: dashed !important;
 }
 
+.tz-event--timer {
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: #7fb3d9 !important;
+  opacity: 0.92;
+}
+
+.timer-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+}
+
+.timer-panel.running {
+  padding: 3px 8px;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+}
+
+.timer-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d04242;
+  animation: tz-blink 1.2s infinite;
+}
+
+@keyframes tz-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.timer-name {
+  font-size: 13px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timer-elapsed {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+
+.timer-title {
+  width: 140px;
+}
+
 .cal-wrap {
   margin-top: 10px;
 }

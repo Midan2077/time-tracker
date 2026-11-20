@@ -29,4 +29,11 @@ export interface PlatformApi {
   loadDb(): Promise<LoadOutcome>
   // Бросает Error с человекочитаемым сообщением; файл при ошибке не трогается.
   saveDb(db: DbFile): Promise<void>
+  // --- M3: трей знает про таймер, но не владеет им (единый писатель БД — store UI). ---
+  // UI сообщает активен ли таймер — трей перекрашивает пункт «Старт/Стоп таймера».
+  // No-op на платформах без трея.
+  setTimerActive(active: boolean): void
+  // Клик по пункту трея «Старт/Стоп таймера»: платформа просит UI переключить таймер.
+  // Без трея колбэк не вызывается никогда.
+  onTimerCommand(cb: (cmd: 'toggle') => void): void
 }

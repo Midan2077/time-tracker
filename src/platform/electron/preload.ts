@@ -6,12 +6,19 @@ import type { LoadOutcome, PlatformApi } from '../api'
 const bridge: PlatformApi = {
   kind: 'electron',
   flags: {
-    // Трейд и горячие клавиши появляются на M3.
-    hasTray: false,
-    hasHotkeys: false,
+    hasTray: true,
+    hasHotkeys: true,
   },
   loadDb: () => ipcRenderer.invoke('db:load') as Promise<LoadOutcome>,
   saveDb: (db) => ipcRenderer.invoke('db:save', db) as Promise<void>,
+  setTimerActive: (active) => {
+    ipcRenderer.send('timer:active', active)
+  },
+  onTimerCommand: (cb) => {
+    ipcRenderer.on('timer:command', (_event, cmd: unknown) => {
+      if (cmd === 'toggle') cb('toggle')
+    })
+  },
 }
 
 contextBridge.exposeInMainWorld('tzPlatform', bridge)

@@ -6,6 +6,8 @@
 // Решение — DECISIONS.md (M2).
 import { create } from 'zustand'
 import { emptyDb, validateDb, MAX_NAME_LENGTH, MAX_NOTE_LENGTH, type DbFile, type Entry, type Project, type Settings } from '../shared/db'
+import { toZ } from '../shared/calendar'
+import { timerStopRange } from '../shared/timer'
 import type { LoadOutcome, PlatformApi } from '../platform/api'
 
 export type Phase = 'loading' | 'ready' | 'readonly'
@@ -39,7 +41,7 @@ type StoreState = {
   now: number // «текущий момент» для статусов/сумм; тикает, чтобы переход будущее->настоящее был живым (M2.5)
 }
 
-const NOW_TICK_MS = 30_000
+const NOW_TICK_MS = 1_000 // растущий блок таймера обновляется раз в секунду (ТЗ §4 M3, фиксировано)
 let nowTicker: ReturnType<typeof setInterval> | null = null
 
 type StoreActions = {
@@ -54,6 +56,9 @@ type StoreActions = {
   updateEntry: (id: string, patch: EntryPatch) => void
   deleteEntry: (id: string) => void
   updateSettings: (patch: Partial<Settings>) => void
+  startTimer: (input: { projectId: string | null; title: string }) => void
+  stopTimer: () => void
+  toggleTimer: () => void
 }
 
 export type Store = StoreState & StoreActions
@@ -143,12 +148,14 @@ export const useStore = create<Store>((set, get) => {
     async init(p) {
       platformRef = p
       set({ platform: p })
+      p.onTimerCommand(() => get().toggleTimer()) // команда из меню трея
       if (nowTicker === null) {
         nowTicker = setInterval(() => set({ now: Date.now() }), NOW_TICK_MS)
       }
       try {
         const outcome = await p.loadDb()
         const db = outcome.kind === 'ok' || outcome.kind === 'restored' ? outcome.db : emptyDb()
+        p.setTimerActive(db.timer !== null) // трей мог стартовать раньше UI
         set({
           phase: outcome.kind === 'too-new' ? 'readonly' : 'ready',
           db,
@@ -241,8 +248,39 @@ export const useStore = create<Store>((set, get) => {
       mutate('удаление блока', (db) => ({ ...db, entries: db.entries.filter((e) => e.id !== id) }))
     },
 
-    updateSettings(patch) {
-      mutate('настройки', (db) => ({ ...db, settings: { ...db.settings, ...patch } }))
+    updateSettings: (patch) =>
+      mutate('настройки', (db) => ({ ...db, settings: { ...db.settings, ...patch } })),
+
+    // Таймер (ТЗ §4 M3): состояние — таймстарт в файле БД, поэтому переживает любой
+    // рестарт; единый писатель — store, трей лишь шлёт команду toggle.
+    // Повторный Start при активном таймере — игнорируется (DECISIONS.md M3).
+    startTimer(input) {
+      if (get().db.timer !== null) return
+      mutate('таймер: старт', (db) => ({
+        ...db,
+        timer: { projectId: input.projectId, title: input.title, startedAt: toZ(Date.now()) },
+      }))
+      get().platform?.setTimerActive(true)
+    },
+
+    stopTimer() {
+      const timer = get().db.timer
+      const range = timerStopRange(timer, Date.now())
+      if (timer === null || range === null) return
+      const entry: Entry = {
+        id: crypto.randomUUID(),
+        projectId: timer.projectId,
+        title: timer.title,
+        start: range.start,
+        end: range.end,
+      }
+      mutate('таймер: стоп', (db) => ({ ...db, entries: [...db.entries, entry], timer: null }))
+      get().platform?.setTimerActive(false)
+    },
+
+    toggleTimer() {
+      if (get().db.timer !== null) get().stopTimer()
+      else get().startTimer({ projectId: null, title: 'Задача' })
     },
   }
 })
