@@ -111,3 +111,204 @@ button:hover {
   font-size: 13px;
   margin: 16px 0 0;
 }
+
+/* --- M2: календарь, модалки, баннеры --- */
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warn);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 8px 12px;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.calendar-card {
+  padding: 12px;
+}
+
+.fc {
+  --fc-border-color: var(--border);
+  --fc-page-bg-color: var(--card);
+  --fc-neutral-bg-color: var(--bg);
+  --fc-today-bg-color: color-mix(in srgb, var(--accent) 8%, var(--card));
+  --fc-event-border-color: transparent;
+  --fc-small-font-size: 12px;
+  font-size: 13px;
+}
+
+.fc .fc-toolbar-title {
+  font-size: 17px;
+}
+
+.fc .fc-button {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  text-transform: capitalize;
+}
+
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.tz-event--archived {
+  opacity: 0.55;
+}
+
+.tz-event--planned {
+  border-style: dashed !important;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh 16px 16px;
+  z-index: 50;
+}
+
+.modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(520px, 100%);
+  padding: 18px 20px;
+  max-height: 84vh;
+  overflow: auto;
+}
+
+.modal h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.modal h3 {
+  font-size: 13px;
+  margin: 14px 0 6px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--muted);
+  flex: 1;
+}
+
+.field-row {
+  display: flex;
+  gap: 10px;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+input[type='color'] {
+  padding: 2px;
+  width: 44px;
+  height: 36px;
+}
+
+input[type='radio'] {
+  accent-color: var(--accent);
+}
+
+button {
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+button.danger {
+  background: transparent;
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.form-error {
+  color: var(--warn);
+  font-size: 13px;
+  margin: 4px 0;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.project-create {
+  display: flex;
+  gap: 8px;
+}
+
+.project-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.project-name {
+  flex: 1;
+}
+
+.project-list .empty {
+  color: var(--muted);
+  font-size: 13px;
+}

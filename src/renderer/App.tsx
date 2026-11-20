@@ -1,89 +1,101 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { JSX } from 'react'
-import { emptyDb } from '../shared/db'
-import type { LoadOutcome, PlatformApi } from '../platform/api'
+import { useStore } from './store'
+import { CalendarView } from './components/CalendarView'
+import { EntryDialog } from './components/EntryDialog'
+import { ProjectsPanel } from './components/ProjectsPanel'
+import type { UtcRange } from '../shared/calendar'
+import { formatLocalTime } from '../shared/calendar'
+import type { PlatformApi } from '../platform/api'
+import { totalsForRange } from '../shared/sums'
 
-type UiState = { phase: 'loading' } | { phase: 'ipc-error'; message: string } | LoadOutcome
+type Dialog =
+  | { kind: 'none' }
+  | { kind: 'projects' }
+  | { kind: 'create'; range: UtcRange }
+  | { kind: 'edit'; entryId: string }
 
-type Tone = 'muted' | 'ok' | 'warn'
-
-function describe(state: UiState): { label: string; tone: Tone } {
-  if ('phase' in state) {
-    if (state.phase === 'loading') return { label: 'загрузка данных…', tone: 'muted' }
-    return { label: `ошибка платформы: ${state.message}`, tone: 'warn' }
-  }
-  switch (state.kind) {
-    case 'ok':
-      return {
-        label:
-          `файл данных прочитан (projects: ${state.db.projects.length}, entries: ${state.db.entries.length})` +
-          (state.migrated ? ' — схема обновлена миграцией' : ''),
-        tone: 'ok',
-      }
-    case 'empty':
-      return { label: 'файл данных ещё не создан', tone: 'muted' }
-    case 'restored':
-      return {
-        label: `основной файл был повреждён (${state.reason}) — данные восстановлены из бэкапа, копия сохранена в db.corrupt.json`,
-        tone: 'warn',
-      }
-    case 'corrupt-clean':
-      return {
-        label: `данные повреждены (${state.reason}) — старт с чистой БД, копия сохранена в db.corrupt.json`,
-        tone: 'warn',
-      }
-    case 'too-new':
-      return { label: `схема БД новее поддерживаемой (v${state.version}) — запись отключена`, tone: 'warn' }
-  }
+function statusTone(phase: string, banner: string | null, saveError: string | null): string {
+  if (saveError !== null || banner !== null) return 'tone-warn'
+  if (phase === 'ready') return 'tone-ok'
+  return 'tone-muted'
 }
 
 export function App({ platform }: { platform: PlatformApi }): JSX.Element {
-  const [state, setState] = useState<UiState>({ phase: 'loading' })
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const phase = useStore((s) => s.phase)
+  const db = useStore((s) => s.db)
+  const statusText = useStore((s) => s.statusText)
+  const banner = useStore((s) => s.banner)
+  const saveError = useStore((s) => s.saveError)
+  const dismissBanner = useStore((s) => s.dismissBanner)
+  const dismissSaveError = useStore((s) => s.dismissSaveError)
+  const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
 
-  const reload = (): void => {
-    setState({ phase: 'loading' })
-    platform
-      .loadDb()
-      .then(setState)
-      .catch((e: unknown) => setState({ phase: 'ipc-error', message: String(e) }))
-  }
+  const readonly = phase === 'readonly'
+  const editingEntry =
+    dialog.kind === 'edit' ? db.entries.find((e) => e.id === dialog.entryId) ?? null : null
 
-  useEffect(reload, [platform])
-
-  const status = describe(state)
-  const canInit = 'kind' in state && (state.kind === 'empty' || state.kind === 'corrupt-clean')
-  const initLabel =
-    'kind' in state && state.kind === 'corrupt-clean' ? 'Начать с чистой БД' : 'Создать файл данных'
-
-  const initDb = (): void => {
-    setSaveError(null)
-    platform
-      .saveDb(emptyDb())
-      .then(reload)
-      .catch((e: unknown) => setSaveError(String(e)))
-  }
+  // Итог за сегодня — витрина расчёта сумм (полный отчёт: M4).
+  const now = new Date()
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+  const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
+  const todayMinutes = totalsForRange(db.entries, db.projects, dayStart, dayEnd, now.toISOString())
+    .reduce((acc, t) => acc + t.minutes, 0)
 
   return (
     <div className="shell">
       <header className="topbar">
         <h1>Тайм-трекер</h1>
         <div className="badges">
+          <span className="badge" data-testid="today-total">
+            сегодня: {Math.floor(todayMinutes / 60)}ч {todayMinutes % 60}м
+          </span>
           <span className="badge">платформа: {platform.kind}</span>
-          <span className="badge">трей: {platform.flags.hasTray ? 'да' : 'нет'}</span>
-          <span className="badge">хоткеи: {platform.flags.hasHotkeys ? 'да' : 'нет'}</span>
+          <button type="button" className="ghost" onClick={() => setDialog({ kind: 'projects' })}>
+            Проекты
+          </button>
         </div>
       </header>
-      <main className="card">
-        <p className={`status tone-${status.tone}`}>{status.label}</p>
-        {canInit && (
-          <button type="button" onClick={initDb}>
-            {initLabel}
-          </button>
-        )}
-        {saveError !== null && <p className="status tone-warn">{saveError}</p>}
-        <p className="hint">Каркас M0: окно, безопасность и PlatformApi. Календарь — на этапе M2.</p>
-      </main>
+
+      <p className={`status ${statusTone(phase, banner, saveError)}`} data-testid="status">
+        {statusText}
+      </p>
+      {banner !== null && (
+        <div className="banner tone-warn">
+          <span>{banner}</span>
+          <button type="button" className="ghost" onClick={dismissBanner} aria-label="Скрыть">✕</button>
+        </div>
+      )}
+      {saveError !== null && (
+        <div className="banner tone-warn">
+          <span>{saveError}</span>
+          <button type="button" className="ghost" onClick={dismissSaveError} aria-label="Скрыть">✕</button>
+        </div>
+      )}
+
+      {phase !== 'loading' && (
+        <main className="card calendar-card">
+          <CalendarView
+            readonly={readonly}
+            onPickRange={(range) => setDialog({ kind: 'create', range })}
+            onOpenEntry={(entryId) => setDialog({ kind: 'edit', entryId })}
+          />
+        </main>
+      )}
+
+      {dialog.kind === 'projects' && <ProjectsPanel onClose={() => setDialog({ kind: 'none' })} />}
+      {dialog.kind === 'create' && (
+        <EntryDialog entry={null} initial={dialog.range} onClose={() => setDialog({ kind: 'none' })} />
+      )}
+      {dialog.kind === 'edit' && editingEntry !== null && (
+        <EntryDialog entry={editingEntry} initial={null} onClose={() => setDialog({ kind: 'none' })} />
+      )}
+
+      <footer className="hint">
+        Выделите время в сетке, чтобы создать блок; перетаскивание и край блока меняют время с
+        немедленным сохранением. Мутации применяются к файлу данных сразу, ошибки показываются
+        баннером. Часовой пояс — системный ({formatLocalTime(new Date().toISOString())} сейчас).
+      </footer>
     </div>
   )
 }

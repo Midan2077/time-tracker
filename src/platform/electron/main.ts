@@ -1,11 +1,11 @@
 // Main-процесс Electron: окно, безопасность, IPC до файлового хранилища (ТЗ §5, §6).
 // Всё платформенное живёт здесь и в ./storage.ts; UI про Electron не знает.
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { LoadOutcome } from '../api'
-import { dataDir, dbFilePath, loadDbOutcome, parseAndValidate, saveDbFile } from './storage'
+import { dataDir, loadDbOutcome, parseAndValidate, saveDbFile } from './storage'
 
 const isDev = !app.isPackaged
 const smoke = process.env['TZ_SMOKE_SHOT'] === '1'
@@ -78,39 +78,55 @@ function createWindow(): void {
     console.log('[main] window ready')
     win.show()
     if (smoke) {
-      setTimeout(() => {
-        void wc
-          .executeJavaScript(
-            `(() => {
-               const b = document.querySelector('button');
-               if (b) b.click();
-               return JSON.stringify({
-                 h1: document.querySelector('h1')?.textContent ?? null,
-                 status: document.querySelector('.status')?.textContent ?? null,
-                 bridge: typeof window.tzPlatform?.kind,
-                 clicked: Boolean(b),
-               });
-             })()`,
-          )
-          .then((summary: string) => {
-            console.log(`[main] smoke: renderer state (до сохранения): ${summary}`)
-            return new Promise<void>((resolve) => setTimeout(resolve, 700))
-          })
-          .then(() =>
-            wc.executeJavaScript(`document.querySelector('.status')?.textContent ?? null`),
-          )
-          .then((statusAfter: string) => {
-            const dbExists = existsSync(dbFilePath())
-            console.log(`[main] smoke: статус после клика: ${statusAfter}; файл БД создан: ${dbExists}`)
-            return wc.capturePage()
-          })
-          .then((image) => {
-            mkdirSync(dataDir(), { recursive: true })
-            writeFileSync(join(dataDir(), 'smoke.png'), image.toPNG())
-            console.log('[main] smoke: screenshot saved, quitting')
-            app.quit()
-          })
-      }, 2000)
+      const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+      const assertRenderer = async (): Promise<Electron.NativeImage> => {
+        await sleep(2000)
+        const step1 = await wc.executeJavaScript(`(() => ({
+          h1: document.querySelector('h1')?.textContent ?? null,
+          calendar: Boolean(document.querySelector('.fc')),
+          status: document.querySelector('[data-testid="status"]')?.textContent ?? null,
+          events: document.querySelectorAll('.fc-event').length,
+        }))()`)
+        console.log(`[main] smoke шаг 1 (после загрузки): ${JSON.stringify(step1)}`)
+        await wc.executeJavaScript(`(async () => {
+          const res = await window.tzPlatform.loadDb();
+          const db = (res.kind === 'ok' || res.kind === 'restored') ? res.db
+            : { schemaVersion: 1, projects: [], entries: [], timer: null,
+                settings: { weekStartsOn: 1, notificationsEnabled: true } };
+          const s = new Date(); s.setHours(9, 0, 0, 0);
+          const e = new Date(); e.setHours(10, 0, 0, 0);
+          const z = (d) => d.toISOString().replace(/\\.000Z$/, 'Z');
+          await window.tzPlatform.saveDb({ ...db, entries: [...db.entries, {
+            id: crypto.randomUUID(), projectId: null, title: 'Smoke-блок',
+            start: z(s), end: z(e),
+          }]});
+          return 'saved';
+        })()`)
+        console.log('[main] smoke шаг 2: блок записан через PlatformApi, перезагрузка окна')
+        const reloaded = new Promise<void>((resolve) => wc.once('did-finish-load', () => resolve()))
+        wc.reload()
+        await reloaded
+        await sleep(1500)
+        const step2 = await wc.executeJavaScript(`(() => ({
+          calendar: Boolean(document.querySelector('.fc')),
+          events: document.querySelectorAll('.fc-event').length,
+          firstEvent: document.querySelector('.fc-event')?.textContent ?? null,
+          status: document.querySelector('[data-testid="status"]')?.textContent ?? null,
+        }))()`)
+        console.log(`[main] smoke шаг 3 (после перезагрузки): ${JSON.stringify(step2)}`)
+        return wc.capturePage()
+      }
+      void assertRenderer()
+        .then((image) => {
+          mkdirSync(dataDir(), { recursive: true })
+          writeFileSync(join(dataDir(), 'smoke.png'), image.toPNG())
+          console.log('[main] smoke: screenshot saved, quitting')
+          app.quit()
+        })
+        .catch((e: unknown) => {
+          console.error(`[main] smoke failure: ${String(e)}`)
+          app.quit()
+        })
     }
   })
 
