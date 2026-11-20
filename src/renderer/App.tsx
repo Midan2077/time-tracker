@@ -32,6 +32,7 @@ export function App({ platform }: { platform: PlatformApi }): JSX.Element {
   const saveError = useStore((s) => s.saveError)
   const dismissBanner = useStore((s) => s.dismissBanner)
   const dismissSaveError = useStore((s) => s.dismissSaveError)
+  const updateSettings = useStore((s) => s.updateSettings)
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
 
   const readonly = phase === 'readonly'
@@ -91,6 +92,15 @@ export function App({ platform }: { platform: PlatformApi }): JSX.Element {
           <button type="button" className="ghost" onClick={() => setDialog({ kind: 'projects' })}>
             Проекты
           </button>
+          <label className="field-inline">
+            <input
+              type="checkbox"
+              data-testid="notify-toggle"
+              checked={db.settings.notificationsEnabled}
+              onChange={(e) => updateSettings({ notificationsEnabled: e.target.checked })}
+            />
+            напоминания
+          </label>
           <TimerPanel />
         </div>
       </header>

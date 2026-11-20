@@ -36,4 +36,8 @@ export interface PlatformApi {
   // Клик по пункту трея «Старт/Стоп таймера»: платформа просит UI переключить таймер.
   // Без трея колбэк не вызывается никогда.
   onTimerCommand(cb: (cmd: 'toggle') => void): void
+  // --- M3.5: планировщик напоминаний живёт в слое платформы (main). ---
+  // Сигнал наступил: UI обязан пометить reminderFiredAt (единый писатель файла — store).
+  // show=false — просрочено дальше cutoff: не показываем, только помечаем (ТЗ §4).
+  onReminderFired(cb: (payload: { entryId: string; firedAt: string; show: boolean }) => void): void
 }

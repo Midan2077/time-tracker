@@ -2,9 +2,17 @@ import { useState } from 'react'
 import type { JSX } from 'react'
 import { Modal } from './Modal'
 import { isoToLocalInput, localInputToIso } from '../../shared/calendar'
-import { MAX_NAME_LENGTH, MAX_NOTE_LENGTH, type Entry } from '../../shared/db'
+import { MAX_NAME_LENGTH, MAX_NOTE_LENGTH, REMINDER_OFFSETS, type Entry } from '../../shared/db'
 import { selectActiveProjects, useStore } from '../store'
 import type { UtcRange } from '../../shared/calendar'
+
+// Подпись офсета напоминания для селекта (ТЗ §4 M3.5).
+function offsetLabel(minutes: number): string {
+  if (minutes === 0) return 'вовремя'
+  if (minutes < 60) return `за ${minutes} мин`
+  const h = minutes / 60
+  return `за ${h} ч`
+}
 
 type Props = {
   // create: задан initial (снимок выделения); edit: задан entry.
@@ -46,6 +54,9 @@ export function EntryDialog({ entry, initial, onClose }: Props): JSX.Element {
   const [startVal, setStartVal] = useState(isoToLocalInput(start0))
   const [endVal, setEndVal] = useState(isoToLocalInput(end0))
   const [note, setNote] = useState(entry?.note ?? '')
+  const [reminderSel, setReminderSel] = useState(
+    entry !== null && entry.reminder !== undefined && entry.reminder !== null ? String(entry.reminder) : '',
+  )
   const [error, setError] = useState<string | null>(null)
 
   const submit = (): void => {
@@ -63,6 +74,7 @@ export function EntryDialog({ entry, initial, onClose }: Props): JSX.Element {
       setError(err)
       return
     }
+    const reminder = reminderSel === '' ? null : Number(reminderSel)
     if (entry === null) {
       addEntry({
         title: title.trim(),
@@ -70,6 +82,7 @@ export function EntryDialog({ entry, initial, onClose }: Props): JSX.Element {
         start: startIso,
         end: endIso,
         ...(note.trim().length > 0 ? { note: note.trim() } : {}),
+        reminder,
       })
     } else {
       updateEntry(entry.id, {
@@ -78,6 +91,7 @@ export function EntryDialog({ entry, initial, onClose }: Props): JSX.Element {
         start: startIso,
         end: endIso,
         note: note.trim().length > 0 ? note.trim() : null,
+        reminder,
       })
     }
     onClose()
@@ -114,6 +128,17 @@ export function EntryDialog({ entry, initial, onClose }: Props): JSX.Element {
       <label className="field">
         <span>Заметка</span>
         <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} maxLength={MAX_NOTE_LENGTH} />
+      </label>
+      <label className="field">
+        <span>Напоминание</span>
+        <select data-testid="entry-reminder" value={reminderSel} onChange={(e) => setReminderSel(e.target.value)}>
+          <option value="">— нет —</option>
+          {REMINDER_OFFSETS.map((m) => (
+            <option key={m} value={String(m)}>
+              {offsetLabel(m)}
+            </option>
+          ))}
+        </select>
       </label>
       {error !== null && <p className="form-error">{error}</p>}
       <div className="dialog-actions">

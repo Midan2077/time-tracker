@@ -8,6 +8,7 @@ import { create } from 'zustand'
 import { emptyDb, validateDb, MAX_NAME_LENGTH, MAX_NOTE_LENGTH, type DbFile, type Entry, type Project, type Settings } from '../shared/db'
 import { toZ } from '../shared/calendar'
 import { timerStopRange } from '../shared/timer'
+import { resetReminderOnTimeChange } from '../shared/reminders'
 import type { LoadOutcome, PlatformApi } from '../platform/api'
 
 export type Phase = 'loading' | 'ready' | 'readonly'
@@ -18,6 +19,7 @@ export type NewEntryInput = {
   start: string
   end: string
   note?: string
+  reminder?: number | null
   // planned не спрашиваем у вызывающего: future = planned (ТЗ §4 M2.5), считает store.
 }
 
@@ -56,6 +58,7 @@ type StoreActions = {
   updateEntry: (id: string, patch: EntryPatch) => void
   deleteEntry: (id: string) => void
   updateSettings: (patch: Partial<Settings>) => void
+  markReminderFired: (entryId: string, firedAt: string) => void
   startTimer: (input: { projectId: string | null; title: string }) => void
   stopTimer: () => void
   toggleTimer: () => void
@@ -149,6 +152,7 @@ export const useStore = create<Store>((set, get) => {
       platformRef = p
       set({ platform: p })
       p.onTimerCommand(() => get().toggleTimer()) // команда из меню трея
+      p.onReminderFired((p2) => get().markReminderFired(p2.entryId, p2.firedAt)) // M3.5
       if (nowTicker === null) {
         nowTicker = setInterval(() => set({ now: Date.now() }), NOW_TICK_MS)
       }
@@ -204,6 +208,7 @@ export const useStore = create<Store>((set, get) => {
         start: input.start,
         end: input.end,
         ...(input.note !== undefined ? { note: input.note } : {}),
+        ...(input.reminder !== undefined && input.reminder !== null ? { reminder: input.reminder } : {}),
         // Создание блока в будущем = запланированный (ТЗ §4 M2.5).
         ...(Date.parse(input.start) > Date.now() ? { planned: true } : {}),
       }
@@ -220,7 +225,12 @@ export const useStore = create<Store>((set, get) => {
           if (patch.projectId !== undefined) next.projectId = patch.projectId
           if (patch.start !== undefined) next.start = patch.start
           if (patch.end !== undefined) next.end = patch.end
-          if (patch.reminder !== undefined) next.reminder = patch.reminder
+          if (patch.reminder !== undefined) {
+            if (patch.reminder === null) delete next.reminder
+            else next.reminder = patch.reminder
+            // Перенастройка напоминания — отсчёт заново (M3.5).
+            delete next.reminderFiredAt
+          }
           if (patch.planned !== undefined) {
             if (patch.planned) next.planned = true
             else delete next.planned
@@ -235,11 +245,9 @@ export const useStore = create<Store>((set, get) => {
             if (patch.note === null) delete next.note
             else next.note = patch.note
           }
-          // Смена начала блока сбрасывает отметку показанного напоминания (ТЗ §3).
-          if (patch.start !== undefined && patch.start !== e.start) {
-            next.reminderFiredAt = null
-          }
-          return next
+          // Перенос старта снимает отметку показанного напоминания — сработает по новому
+          // времени (ТЗ §4 M3.5); чистая функция в shared, тесты reminders.test.ts.
+          return resetReminderOnTimeChange(e, next)
         }),
       }))
     },
@@ -250,6 +258,17 @@ export const useStore = create<Store>((set, get) => {
 
     updateSettings: (patch) =>
       mutate('настройки', (db) => ({ ...db, settings: { ...db.settings, ...patch } })),
+
+    // М3.5: платформа сигналит — store (единый писатель) ставит reminderFiredAt.
+    // Идемпотентно: уже помеченный блок не перезаписываем и не плодим сохранение.
+    markReminderFired(entryId, firedAt) {
+      const cur = get().db.entries.find((e) => e.id === entryId)
+      if (cur === undefined || (cur.reminderFiredAt !== undefined && cur.reminderFiredAt !== null)) return
+      mutate('напоминание: отметка', (db) => ({
+        ...db,
+        entries: db.entries.map((e) => (e.id === entryId ? { ...e, reminderFiredAt: firedAt } : e)),
+      }))
+    },
 
     // Таймер (ТЗ §4 M3): состояние — таймстарт в файле БД, поэтому переживает любой
     // рестарт; единый писатель — store, трей лишь шлёт команду toggle.

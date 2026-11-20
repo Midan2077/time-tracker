@@ -19,6 +19,17 @@ const bridge: PlatformApi = {
       if (cmd === 'toggle') cb('toggle')
     })
   },
+  onReminderFired: (cb) => {
+    ipcRenderer.on('reminder:fired', (_event, payload: unknown) => {
+      if (
+        typeof payload === 'object' &&
+        payload !== null &&
+        typeof (payload as { entryId?: unknown }).entryId === 'string'
+      ) {
+        cb(payload as { entryId: string; firedAt: string; show: boolean })
+      }
+    })
+  },
 }
 
 contextBridge.exposeInMainWorld('tzPlatform', bridge)

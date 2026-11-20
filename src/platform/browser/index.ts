@@ -38,8 +38,10 @@ export function createBrowserPlatform(): PlatformApi {
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(validated))
     },
-    // Трея и нативных хоткеев в браузере нет (ТЗ §5): интерфейс соблюдён no-op'ами.
+    // Трея, хоткеев и системных уведомлений в браузере нет (ТЗ §5 — исключение
+    // из «того же набора фич»): интерфейс соблюдён no-op'ами.
     setTimerActive: () => undefined,
     onTimerCommand: () => undefined,
+    onReminderFired: () => undefined,
   }
 }
