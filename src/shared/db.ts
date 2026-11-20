@@ -1,6 +1,8 @@
 // Модель данных и валидация (ТЗ §3). Чистый модуль: без Electron, node- и DOM-импортов.
 // Используется и слоем платформы, и UI, и тестами.
 
+import { runMigrations, MIGRATIONS, type MigrationChain } from './migrations'
+
 export type Project = {
   id: string
   name: string
@@ -181,22 +183,23 @@ function parseSettings(raw: unknown): Settings {
 // Runtime-валидация данных, пришедших с границы (IPC / localStorage).
 // Возвращает нормализованный DbFile; лишние ключи отбрасываются.
 // Бросает DbValidationError с понятной причиной.
-export function validateDb(raw: unknown): DbFile {
+// target — версия схемы, которой должен соответствовать результат (после миграций).
+export function validateDb(raw: unknown, target: number = CURRENT_SCHEMA_VERSION): DbFile {
   if (!isRecord(raw)) fail('root: expected object')
   const schemaVersion = raw['schemaVersion']
   if (typeof schemaVersion !== 'number' || !Number.isInteger(schemaVersion)) {
     fail('schemaVersion: expected integer')
   }
-  if (schemaVersion > CURRENT_SCHEMA_VERSION) {
-    fail(`schemaVersion ${schemaVersion} is newer than supported ${CURRENT_SCHEMA_VERSION}`)
+  if (schemaVersion > target) {
+    fail(`schemaVersion ${schemaVersion} is newer than supported ${target}`)
   }
-  if (schemaVersion !== CURRENT_SCHEMA_VERSION) {
+  if (schemaVersion !== target) {
     fail(`schemaVersion ${schemaVersion} cannot be read without a migration`)
   }
   if (!Array.isArray(raw['projects'])) fail('projects: expected array')
   if (!Array.isArray(raw['entries'])) fail('entries: expected array')
   return {
-    schemaVersion: CURRENT_SCHEMA_VERSION,
+    schemaVersion: target,
     projects: raw['projects'].map(parseProject),
     entries: raw['entries'].map(parseEntry),
     timer: parseTimer(raw['timer']),
@@ -204,25 +207,39 @@ export function validateDb(raw: unknown): DbFile {
   }
 }
 
-export type ParseDbTextResult =
-  | { kind: 'ok'; db: DbFile }
+export type DbParseResult =
+  | { kind: 'ok'; db: DbFile; migrated: boolean }
   | { kind: 'too-new'; version: number }
   | { kind: 'corrupt'; reason: string }
 
-// Разбор текста файла/хранилища: отличает «схема новее» от повреждения.
-// «Новее известной» — отдельный исход, файл при этом не перезаписывается (ТЗ §3).
-export function parseDbText(text: string): ParseDbTextResult {
+export type { DbParseResult as ParseDbTextResult } // совместимость имён (M0)
+
+// Разбор текста файла/хранилища: миграции -> валидация.
+// Отличает «схема новее» (файл не перезаписывать!) от повреждения (см. ТЗ §3, M1).
+// chain/target параметризуются для тестов синтетическими цепочками.
+export function parseDbText(
+  text: string,
+  chain: MigrationChain = MIGRATIONS,
+  target: number = CURRENT_SCHEMA_VERSION,
+): DbParseResult {
   let raw: unknown
   try {
     raw = JSON.parse(text) as unknown
   } catch {
     return { kind: 'corrupt', reason: 'not valid JSON' }
   }
-  if (isRecord(raw) && typeof raw['schemaVersion'] === 'number' && raw['schemaVersion'] > CURRENT_SCHEMA_VERSION) {
-    return { kind: 'too-new', version: raw['schemaVersion'] }
+  if (!isRecord(raw)) return { kind: 'corrupt', reason: 'root is not an object' }
+  const result = runMigrations(raw, chain, target)
+  switch (result.kind) {
+    case 'too-new':
+      return result
+    case 'no-path':
+      return { kind: 'corrupt', reason: result.reason }
+    case 'current':
+      break
   }
   try {
-    return { kind: 'ok', db: validateDb(raw) }
+    return { kind: 'ok', db: validateDb(result.db, target), migrated: result.migratedFrom !== null }
   } catch (e) {
     const reason = e instanceof DbValidationError ? e.reason : String(e)
     return { kind: 'corrupt', reason }

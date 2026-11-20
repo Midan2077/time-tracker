@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptyDb, parseDbText, validateDb, DbValidationError } from './db'
+import { runMigrations, type MigrationStep } from './migrations'
 
 describe('validateDb', () => {
   it('принимает пустую БД', () => {
@@ -55,6 +56,7 @@ describe('parseDbText', () => {
   it('пустой/битый JSON — corrupt, не исключение', () => {
     expect(parseDbText('').kind).toBe('corrupt')
     expect(parseDbText('{oops').kind).toBe('corrupt')
+    expect(parseDbText('[]').kind).toBe('corrupt')
     expect(parseDbText('{"schemaVersion":1}').kind).toBe('corrupt')
   })
 
@@ -63,8 +65,78 @@ describe('parseDbText', () => {
     expect(res).toEqual({ kind: 'too-new', version: 9 })
   })
 
-  it('корректный JSON — ok', () => {
+  it('корректный JSON — ok без миграции', () => {
     const res = parseDbText(JSON.stringify(emptyDb()))
     expect(res.kind).toBe('ok')
+    expect(res.kind === 'ok' && res.migrated).toBe(false)
+  })
+
+  it('поля планирования читаются из v1 со значениями по умолчанию', () => {
+    const text = JSON.stringify({
+      schemaVersion: 1,
+      projects: [],
+      entries: [
+        {
+          id: 'e1',
+          projectId: null,
+          title: 'Встреча',
+          start: '2026-12-01T10:00:00Z',
+          end: '2026-12-01T11:00:00Z',
+          planned: true,
+          reminder: 15,
+        },
+      ],
+      timer: null,
+      settings: { weekStartsOn: 1, notificationsEnabled: true },
+    })
+    const res = parseDbText(text)
+    expect(res.kind).toBe('ok')
+    if (res.kind === 'ok') {
+      expect(res.db.entries[0]?.planned).toBe(true)
+      expect(res.db.entries[0]?.reminder).toBe(15)
+      expect(res.db.entries[0]?.reminderFiredAt).toBeUndefined()
+    }
+  })
+})
+
+describe('миграции', () => {
+  const step1to2: MigrationStep = {
+    from: 1,
+    to: 2,
+    migrate: (db) => {
+      const settings = (db['settings'] ?? {}) as Record<string, unknown>
+      return { ...db, settings: { ...settings, defaultReminder: 15 } }
+    },
+  }
+
+  it('parseDbText прогоняет цепочку и помечает migrated', () => {
+    const res = parseDbText(JSON.stringify(emptyDb()), [step1to2], 2)
+    expect(res.kind).toBe('ok')
+    if (res.kind === 'ok') {
+      expect(res.migrated).toBe(true)
+      expect(res.db.schemaVersion).toBe(2)
+      expect(res.db.settings.defaultReminder).toBe(15)
+    }
+  })
+
+  it('нет шага — corrupt с причиной (данные не теряются молча)', () => {
+    const res = parseDbText(JSON.stringify(emptyDb()), [], 2)
+    expect(res.kind).toBe('corrupt')
+    if (res.kind === 'corrupt') expect(res.reason).toMatch(/no migration path from schemaVersion 1/)
+  })
+
+  it('версия выше цели — too-new даже с цепочкой', () => {
+    const res = parseDbText('{"schemaVersion":3}', [step1to2], 2)
+    expect(res).toEqual({ kind: 'too-new', version: 3 })
+  })
+
+  it('шаг не увеличивает версию — no-path', () => {
+    const res = runMigrations({ schemaVersion: 1 }, [{ from: 1, to: 1, migrate: (d) => d }], 2)
+    expect(res.kind).toBe('no-path')
+  })
+
+  it('отсутствующий schemaVersion — no-path', () => {
+    const res = runMigrations({ projects: [] }, [], 1)
+    expect(res.kind).toBe('no-path')
   })
 })

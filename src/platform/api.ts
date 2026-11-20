@@ -10,11 +10,16 @@ export type PlatformFlags = {
   hasHotkeys: boolean
 }
 
+// Итог загрузки хранилища (ТЗ §3, M1): приложение стартует в любом случае,
+// данные не теряются безвозвратно (восстановление из бэкапа или чистая БД с сообщением).
 export type LoadOutcome =
-  | { kind: 'ok'; db: DbFile }
+  | { kind: 'ok'; db: DbFile; migrated: boolean }
   | { kind: 'empty' }
+  // Основной файл повреждён, данные восстановлены из бэкапа; копия битого файла сохранена.
+  | { kind: 'restored'; db: DbFile; reason: string }
+  // Файл повреждён, бэкап недоступен: стартуем с чистой БД; копия битого файла сохранена.
+  | { kind: 'corrupt-clean'; reason: string }
   | { kind: 'too-new'; version: number }
-  | { kind: 'corrupt'; reason: string }
 
 // Узкий типизированный интерфейс платформы. Реализации:
 // src/platform/electron (preload+main) и src/platform/browser.

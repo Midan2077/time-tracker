@@ -1,10 +1,10 @@
-// Файловое хранилище БД в main-процессе (ТЗ §2, §5): только main имеет доступ к fs.
-// Запись атомарная: tmp-файл в той же директории -> fsync ('flush') ->
-// бэкап предыдущей копии -> rename -> fsync директории (best effort).
+// Файловое хранилище БД в main-процессе (ТЗ §5): только здесь решается, ГДЕ лежат данные.
+// Сама логика атомарной записи/восстановления/миграций — в ./fileStore.ts
+// (не зависит от Electron и покрывается тестами в node-окружении).
 import { app } from 'electron'
-import { closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseDbText, validateDb, DbValidationError, type DbFile } from '../../shared/db'
+import { validateDb, type DbFile } from '../../shared/db'
+import { loadStore, pathsFor, saveStore, type StorePaths } from './fileStore'
 import type { LoadOutcome } from '../api'
 
 // Во время разработки данные лежат в каталоге проекта (.data), в собранном приложении —
@@ -13,71 +13,33 @@ export function dataDir(): string {
   return app.isPackaged ? app.getPath('userData') : join(process.cwd(), '.data')
 }
 
+export function storePaths(): StorePaths {
+  return pathsFor(dataDir())
+}
+
 export function dbFilePath(): string {
-  return join(dataDir(), 'db.json')
-}
-
-function backupFilePath(): string {
-  return join(dataDir(), 'db.backup.json')
-}
-
-function tmpFilePath(): string {
-  return `${dbFilePath()}.tmp`
+  return storePaths().main
 }
 
 export function loadDbOutcome(): LoadOutcome {
-  // Убираем tmp-файл, оставшийся от аварийного завершения (ТЗ §2).
-  try {
-    rmSync(tmpFilePath(), { force: true })
-  } catch {
-    /* best effort */
-  }
-  let text: string
-  try {
-    text = readFileSync(dbFilePath(), 'utf-8')
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code
-    if (code === 'ENOENT') return { kind: 'empty' }
-    return { kind: 'corrupt', reason: `read failed: ${code ?? String(e)}` }
-  }
-  if (text.trim().length === 0) return { kind: 'corrupt', reason: 'file is empty' }
-  return parseDbText(text)
-}
-
-// Атомарная запись. Предыдущая копия сохраняется в db.backup.json перед подменой
-// основного файла: при обрыве в любой момент целая (старая или новая) версия осталась.
-export function saveDbFile(db: DbFile): void {
-  const dir = dataDir()
-  mkdirSync(dir, { recursive: true })
-  const text = JSON.stringify(db, null, 2)
-  const tmp = tmpFilePath()
-  // Явный fsync: open -> write -> fsync -> close, затем rename по финальному имени.
-  const fd = openSync(tmp, 'w')
-  try {
-    writeFileSync(fd, text)
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-  if (existsSync(dbFilePath())) {
-    copyFileSync(dbFilePath(), backupFilePath())
-  }
-  renameSync(tmp, dbFilePath())
-  try {
-    const dirFd = openSync(dir, 'r')
-    try {
-      fsyncSync(dirFd)
-    } finally {
-      closeSync(dirFd)
-    }
-  } catch {
-    /* fsync директории поддерживается не всеми ОС */
-  }
+  return loadStore(storePaths())
 }
 
 // Валидация данных, пришедших из renderer, на границе платформы (ТЗ §6).
+// Бросает DbValidationError; файл при этом не трогается.
 export function parseAndValidate(raw: unknown): DbFile {
   return validateDb(raw)
 }
 
-export { DbValidationError }
+export function saveDbFile(db: DbFile): void {
+  const result = saveStore(storePaths(), db)
+  if (!result.ok) {
+    throw new Error(
+      result.error === 'too-new'
+        ? 'db schema is newer than this app supports; saving is disabled'
+        : `db write failed: ${result.detail}`,
+    )
+  }
+}
+
+export { DbValidationError } from '../../shared/db'

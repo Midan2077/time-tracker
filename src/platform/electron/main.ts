@@ -125,17 +125,11 @@ function createWindow(): void {
 app.enableSandbox()
 
 app.whenReady().then(() => {
-  ipcMain.handle('db:load', (): LoadOutcome => {
-    lastLoad = loadDbOutcome()
-    return lastLoad
-  })
+  ipcMain.handle('db:load', (): LoadOutcome => loadDbOutcome())
+  // Валидация на границе (ТЗ §6): невалидные данные -> ошибка в renderer, файл не тронут.
+  // Защита too-new живёт в fileStore: файл с новой схемой не перезаписывается.
   ipcMain.handle('db:save', (_event, raw: unknown): void => {
-    // Схема новее нашей: файл не трогаем (ТЗ §3).
-    if (lastLoad.kind === 'too-new') {
-      throw new Error('db schema is newer than this app supports; saving is disabled')
-    }
     saveDbFile(parseAndValidate(raw))
-    lastLoad = { kind: 'ok', db: parseAndValidate(raw) }
   })
 
   createWindow()
