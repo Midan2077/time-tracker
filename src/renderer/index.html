@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Строгий CSP (ТЗ §6). frame-ancestors намеренно отсутствует: директива работает
+         только через HTTP-заголовок, а в <meta> браузер игнорирует её с ошибкой в консоли.
+         В dev script-src временно ослаблен inline-прелюдом Vite
+         (см. tools/vite-plugin-csp-dev.ts и DECISIONS.md); в prod-бандле — как здесь. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Тайм-трекер</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
