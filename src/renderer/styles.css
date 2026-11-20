@@ -168,6 +168,29 @@ button:hover {
   border-style: dashed !important;
 }
 
+.cal-wrap {
+  margin-top: 10px;
+}
+
+.cal-nav {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted-foreground, #9aa1ab);
+}
+
+.field-inline input {
+  font-size: 13px;
+  padding: 3px 6px;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

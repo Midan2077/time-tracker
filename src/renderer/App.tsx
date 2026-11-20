@@ -7,7 +7,9 @@ import { ProjectsPanel } from './components/ProjectsPanel'
 import type { UtcRange } from '../shared/calendar'
 import { formatLocalTime } from '../shared/calendar'
 import type { PlatformApi } from '../platform/api'
-import { totalsForRange } from '../shared/sums'
+import { totalsForRange, plannedMinutesForRange } from '../shared/sums'
+import { weekRangeUtc } from '../shared/calendar'
+import { plannedForRange } from '../shared/planning'
 
 type Dialog =
   | { kind: 'none' }
@@ -35,12 +37,17 @@ export function App({ platform }: { platform: PlatformApi }): JSX.Element {
   const editingEntry =
     dialog.kind === 'edit' ? db.entries.find((e) => e.id === dialog.entryId) ?? null : null
 
-  // Итог за сегодня — витрина расчёта сумм (полный отчёт: M4).
-  const now = new Date()
+  // Итог за сегодня и план на неделю — витрина расчётов (полный отчёт: M4).
+  // now берём из store: тик 30 с превращает «запланированное» в «прошедшее» без перезапуска (M2.5).
+  const nowMs = useStore((s) => s.now)
+  const now = new Date(nowMs)
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
   const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
   const todayMinutes = totalsForRange(db.entries, db.projects, dayStart, dayEnd, now.toISOString())
     .reduce((acc, t) => acc + t.minutes, 0)
+  const week = weekRangeUtc(nowMs, db.settings.weekStartsOn)
+  const plannedCount = plannedForRange(db.entries, week, nowMs).length
+  const plannedMinutes = plannedMinutesForRange(db.entries, week.start, week.end, now.toISOString())
 
   return (
     <div className="shell">
@@ -49,6 +56,9 @@ export function App({ platform }: { platform: PlatformApi }): JSX.Element {
         <div className="badges">
           <span className="badge" data-testid="today-total">
             сегодня: {Math.floor(todayMinutes / 60)}ч {todayMinutes % 60}м
+          </span>
+          <span className="badge" data-testid="planned-total">
+            план недели: {plannedCount} на {Math.floor(plannedMinutes / 60)}ч {plannedMinutes % 60}м
           </span>
           <span className="badge">платформа: {platform.kind}</span>
           <button type="button" className="ghost" onClick={() => setDialog({ kind: 'projects' })}>

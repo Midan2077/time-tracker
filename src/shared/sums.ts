@@ -1,7 +1,11 @@
 // Расчёт сумм потраченного времени (ТЗ §4 «Отчёт», используется и шапкой M2).
-// Правила (ТЗ §3): в сумму входят только фактически прошедшие блоки: planned не считается,
-// блок засчитывается, если end <= now; пересечение с периодом — отсечка границами (НЕ целиком).
+// Правила (ТЗ §3): в сумму входят только фактически прошедшие блоки — end <= now.
+// Флаг planned отдельно не проверяется: у блока в будущем end > now, поэтому он
+// отсекается временным условием; запланированный блок, чьё время уже прошло,
+// — фактически потраченное время и в сумму входит (DECISIONS.md M2.5).
+// Пересечение с периодом — отсечка границами (НЕ целиком).
 import type { Entry, Project } from './db'
+import { isPlanned } from './planning'
 
 export type ProjectTotal = {
   projectId: string | null
@@ -30,7 +34,6 @@ export function totalsForRange(
   const byProject = new Map<string, number>() // '' = без проекта
   let nullMs = 0
   for (const e of entries) {
-    if (e.planned === true) continue
     const end = Date.parse(e.end)
     if (end > now) continue
     const ms = clipMs(Date.parse(e.start), end, rangeStart, rangeEnd)
@@ -51,4 +54,23 @@ export function totalsForRange(
   }
   out.sort((a, b) => b.minutes - a.minutes || a.name.localeCompare(b.name, 'ru'))
   return out
+}
+
+// Минуты запланированного времени в периоде (индикатор «план», ТЗ §4 M2.5):
+// только ещё не наступившие блоки (isPlanned), длительность отсечена границами периода.
+export function plannedMinutesForRange(
+  entries: readonly Entry[],
+  rangeStartIso: string,
+  rangeEndIso: string,
+  nowIso: string,
+): number {
+  const rangeStart = Date.parse(rangeStartIso)
+  const rangeEnd = Date.parse(rangeEndIso)
+  const now = Date.parse(nowIso)
+  let ms = 0
+  for (const e of entries) {
+    if (!isPlanned(e, now)) continue
+    ms += clipMs(Date.parse(e.start), Date.parse(e.end), rangeStart, rangeEnd)
+  }
+  return Math.floor(ms / 60_000)
 }

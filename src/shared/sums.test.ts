@@ -54,7 +54,7 @@ describe('totalsForRange', () => {
     expect(totals[0]?.minutes).toBe(60)
   })
 
-  it('будущие и planned блоки не считаются; незавершённый текущий — только прошедшая часть', () => {
+  it('план в прошлом — факт (входит); блок с end > now — не входит; незавершённый — не целиком', () => {
     const totals = totalsForRange(
       [
         entry({ projectId: 'p1', planned: true, start: '2026-11-21T09:00:00Z', end: '2026-11-21T10:00:00Z' }),
@@ -65,8 +65,10 @@ describe('totalsForRange', () => {
       DAY.rangeEnd,
       NOW,
     )
-    // end > now — по правилу ТЗ блок не входит в сумму целиком
-    expect(totals).toEqual([])
+    // M2.5: суммируется всё, у чего end <= now — прошедший план вошёл (60),
+    // незавершённый блок (end > now) — нет (правило ТЗ «целиком не учитывается» трактовано
+    // как «не входит до завершения», см. DECISIONS.md).
+    expect(totals).toEqual([{ projectId: 'p1', name: project.name, minutes: 60 }])
   })
 
   it('несуществующий проект не роняет расчёт (имя — заглушка)', () => {

@@ -28,6 +28,18 @@ export function snapRangeUtc(startIso: string, endIso: string, gridMinutes = GRI
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
+// Недальный период (пн..вс или по weekStartsOn) с якорем в моменте anchorMs:
+// локальные полуночи начала и конца недели, ISO в UTC. Нужен для «план на неделю» (ТЗ §4 M2.5).
+export function weekRangeUtc(anchorMs: number, weekStartsOn: number): UtcRange {
+  const anchor = new Date(anchorMs)
+  const localNoon = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), 12)
+  const dow = localNoon.getDay()
+  const daysFromStart = (dow - weekStartsOn + 7) % 7
+  const start = new Date(localNoon.getFullYear(), localNoon.getMonth(), localNoon.getDate() - daysFromStart)
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7)
+  return { start: start.toISOString(), end: end.toISOString() }
+}
+
 // Значение для <input type="datetime-local"> в ЛОКАЛЬНОЙ зоне браузера (хостовой).
 export function isoToLocalInput(iso: string): string {
   const d = new Date(iso)

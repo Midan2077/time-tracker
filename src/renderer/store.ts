@@ -16,7 +16,7 @@ export type NewEntryInput = {
   start: string
   end: string
   note?: string
-  planned?: boolean
+  // planned не спрашиваем у вызывающего: future = planned (ТЗ §4 M2.5), считает store.
 }
 
 export type EntryPatch = {
@@ -36,7 +36,11 @@ type StoreState = {
   banner: string | null
   saveError: string | null
   platform: PlatformApi | null
+  now: number // «текущий момент» для статусов/сумм; тикает, чтобы переход будущее->настоящее был живым (M2.5)
 }
+
+const NOW_TICK_MS = 30_000
+let nowTicker: ReturnType<typeof setInterval> | null = null
 
 type StoreActions = {
   init: (platform: PlatformApi) => Promise<void>
@@ -134,10 +138,14 @@ export const useStore = create<Store>((set, get) => {
     banner: null,
     saveError: null,
     platform: null,
+    now: Date.now(),
 
     async init(p) {
       platformRef = p
       set({ platform: p })
+      if (nowTicker === null) {
+        nowTicker = setInterval(() => set({ now: Date.now() }), NOW_TICK_MS)
+      }
       try {
         const outcome = await p.loadDb()
         const db = outcome.kind === 'ok' || outcome.kind === 'restored' ? outcome.db : emptyDb()
@@ -189,7 +197,8 @@ export const useStore = create<Store>((set, get) => {
         start: input.start,
         end: input.end,
         ...(input.note !== undefined ? { note: input.note } : {}),
-        ...(input.planned === true ? { planned: true } : {}),
+        // Создание блока в будущем = запланированный (ТЗ §4 M2.5).
+        ...(Date.parse(input.start) > Date.now() ? { planned: true } : {}),
       }
       mutate('блок', (db) => ({ ...db, entries: [...db.entries, entry] }))
     },
@@ -207,6 +216,12 @@ export const useStore = create<Store>((set, get) => {
           if (patch.reminder !== undefined) next.reminder = patch.reminder
           if (patch.planned !== undefined) {
             if (patch.planned) next.planned = true
+            else delete next.planned
+          }
+          // Перенос начала меняет planned, если он не задан явно той же правкой (M2.5):
+          // перетащил в будущее — запланирован, перетащил в прошлое — слот флага чистим.
+          if (patch.start !== undefined && patch.planned === undefined) {
+            if (Date.parse(next.start) > Date.now()) next.planned = true
             else delete next.planned
           }
           if (patch.note !== undefined) {

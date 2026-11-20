@@ -95,11 +95,13 @@ function createWindow(): void {
                 settings: { weekStartsOn: 1, notificationsEnabled: true } };
           const s = new Date(); s.setHours(9, 0, 0, 0);
           const e = new Date(); e.setHours(10, 0, 0, 0);
+          const ps = new Date(s); ps.setDate(ps.getDate() + 7);
+          const pe = new Date(e); pe.setDate(pe.getDate() + 7);
           const z = (d) => d.toISOString().replace(/\\.000Z$/, 'Z');
-          await window.tzPlatform.saveDb({ ...db, entries: [...db.entries, {
-            id: crypto.randomUUID(), projectId: null, title: 'Smoke-блок',
-            start: z(s), end: z(e),
-          }]});
+          await window.tzPlatform.saveDb({ ...db, entries: [...db.entries,
+            { id: crypto.randomUUID(), projectId: null, title: 'Smoke-блок', start: z(s), end: z(e) },
+            { id: crypto.randomUUID(), projectId: null, title: 'Smoke-план', start: z(ps), end: z(pe), planned: true },
+          ]});
           return 'saved';
         })()`)
         console.log('[main] smoke шаг 2: блок записан через PlatformApi, перезагрузка окна')
@@ -114,6 +116,15 @@ function createWindow(): void {
           status: document.querySelector('[data-testid="status"]')?.textContent ?? null,
         }))()`)
         console.log(`[main] smoke шаг 3 (после перезагрузки): ${JSON.stringify(step2)}`)
+        await wc.executeJavaScript(
+          `(() => { const b = document.querySelector('.fc-next-button'); if (!b) throw new Error('нет .fc-next-button'); b.click(); return 'ok'; })()`,
+        )
+        await sleep(800)
+        const step3 = await wc.executeJavaScript(`(() => ({
+          plannedEvents: document.querySelectorAll('.fc-event.tz-event--planned').length,
+          plannedBadge: document.querySelector('[data-testid="planned-total"]')?.textContent ?? null,
+        }))()`)
+        console.log(`[main] smoke шаг 4 (неделя вперёд): ${JSON.stringify(step3)}`)
         return wc.capturePage()
       }
       void assertRenderer()
