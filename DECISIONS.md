@@ -210,3 +210,14 @@
   сказано в подсказке модалки и комментарии CSV.
 - В smoke диалог сохранения заменён env TZ_SMOKE_EXPORT_PATH: приёмка проверяет настоящий
   файл (BOM/разделитель/экранирование кавычек/ИТОГО/CRLF) без модального окна.
+
+## 2026-11-21 · M5 · Упаковка и CI
+- electron-builder 26.18.0 (devDependency, точная версия): конфиг в package.json#build,
+  цели dmg(arm64)/nsis(x64)/AppImage. Нативных модулей нет — afterPack/asarUnpack не нужны,
+  files: out/**. Подпись не настраиваем (pet-проект): mac identity:null +
+  CSC_IDENTITY_AUTO_DISCOVERY=false в CI; для чужих машин — снятие карантина, в README.
+- CI: build.yml на tag v* + workflow_dispatch, матрица ubuntu-latest/macos-14/windows-latest,
+  actions checkout/setup-node/upload-artifact @v7 (актуальные на ноябрь 2026), node 24 LTS.
+  Пайплайн повторяет локальные гейты: typecheck → test → build → builder.
+- Версии actions и electron-builder проверены по API/regitry, не «на глаз» (ТЗ §0).
+- Версии зависимостей в lockfile (npm ci) — артефакты CI идентичны локальной сборке.
