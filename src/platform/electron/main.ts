@@ -1,7 +1,7 @@
 // Main-процесс Electron: окно, безопасность, IPC до файлового хранилища (ТЗ §5, §6).
 // Всё платформенное живёт здесь и в ./storage.ts; UI про Electron не знает.
-import { app, BrowserWindow, ipcMain, Notification, shell } from 'electron'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { LoadOutcome } from '../api'
@@ -148,11 +148,14 @@ function createWindow(): void {
           const pe = new Date(e); pe.setDate(pe.getDate() + 7);
           const rStart = new Date(Date.now() + 5000);
           const rEnd = new Date(rStart.getTime() + 30 * 60000);
+          const ws = new Date(); const dow = (ws.getDay() + 6) % 7; ws.setDate(ws.getDate() - dow); ws.setHours(0, 0, 0, 0);
+          const we = new Date(Date.now() - 60000);
           const z = (d) => d.toISOString().replace(/\\.000Z$/, 'Z');
           await window.tzPlatform.saveDb({ ...db, entries: [...db.entries,
             { id: crypto.randomUUID(), projectId: null, title: 'Smoke-блок', start: z(s), end: z(e) },
             { id: crypto.randomUUID(), projectId: null, title: 'Smoke-план', start: z(ps), end: z(pe), planned: true },
             { id: crypto.randomUUID(), projectId: null, title: 'Smoke-напоминание', start: rStart.toISOString(), end: rEnd.toISOString(), reminder: 0 },
+            ...(we > ws ? [{ id: crypto.randomUUID(), projectId: null, title: 'Дыра; "тест"', start: ws.toISOString(), end: we.toISOString() }] : []),
           ]});
           return 'saved';
         })()`)
@@ -220,6 +223,32 @@ function createWindow(): void {
           plannedBadge: document.querySelector('[data-testid="planned-total"]')?.textContent ?? null,
         }))()`)
         console.log(`[main] smoke шаг 4 (неделя вперёд): ${JSON.stringify(step3)}`)
+        // M4: отчёт + экспорт CSV (в smoke диалог заменяется путём из TZ_SMOKE_EXPORT_PATH).
+        await wc.executeJavaScript(
+          `(() => { const b = document.querySelector('[data-testid="open-report"]'); if (!b) throw new Error('нет кнопки Отчёт'); b.click(); return 'ok'; })()`,
+        )
+        await sleep(600)
+        const reportView = await wc.executeJavaScript(`(() => ({
+          table: Boolean(document.querySelector('[data-testid="report-table"]')),
+          rows: Array.from(document.querySelectorAll('[data-testid="report-table"] tbody tr')).map((r) => r.textContent),
+        }))()`)
+        console.log(`[main] smoke шаг 5a (таблица отчёта): ${JSON.stringify(reportView)}`)
+        await wc.executeJavaScript(
+          `(() => { const b = document.querySelector('[data-testid="report-export"]'); if (!b) throw new Error('нет кнопки Экспорт'); b.click(); return 'ok'; })()`,
+        )
+        await sleep(900)
+        const exportStatus = await wc.executeJavaScript(
+          `document.querySelector('[data-testid="status"]')?.textContent ?? null`,
+        )
+        const csvPath = join(dataDir(), 'export.csv')
+        const csv = readFileSync(csvPath, 'utf8')
+        console.log(
+          `[main] smoke шаг 5b (экспорт): статус=${JSON.stringify(exportStatus)}, ` +
+            `BOM=${String(csv.charCodeAt(0) === 0xFEFF)}, ` +
+            `разделатор=/${String(csv.includes('Проект;Дата;'))}/, ` +
+            `экранирование=/${String(csv.includes('"Дыра; ""тест"""'))}/, ` +
+            `итог=/${String(csv.includes('ВСЕГО;'))}/, CRLF=/${String(csv.includes('\r\n'))}/`,
+        )
         const image = await wc.capturePage()
         // Крестик (закрытие окна) = в трей: окно скрыто, процесс жив (ТЗ §4 M3).
         win.close()
@@ -269,6 +298,25 @@ app.whenReady().then(() => {
   })
   // Смена системного времени отслеживаем watchdog'ем (DECISIONS M3.5): дешёвый polling.
   setInterval(rescheduleReminders, RESCHEDULE_WATCHDOG_MS)
+
+  // M4: диалог сохранения CSV (ТЗ §6). В smoke-режиме диалог не показываем — путь из env,
+  // иначе приёмочный прогон зависнет на модальном окне.
+  ipcMain.handle('csv:export', async (_event, job: { suggestedName: string; content: string }) => {
+    const smokePath = process.env['TZ_SMOKE_EXPORT_PATH']
+    let path: string | undefined
+    if (smoke && smokePath !== undefined) {
+      path = smokePath
+    } else {
+      const res = await dialog.showSaveDialog({
+        defaultPath: join(app.getPath('documents'), job.suggestedName),
+        filters: [{ name: 'CSV', extensions: ['csv'] }],
+      })
+      path = res.canceled ? undefined : res.filePath
+    }
+    if (path === undefined) return { kind: 'cancelled' } as const
+    writeFileSync(path, job.content)
+    return { kind: 'saved', path } as const
+  })
 
   createWindow()
   app.on('activate', () => {

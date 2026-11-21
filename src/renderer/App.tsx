@@ -5,6 +5,7 @@ import { CalendarView } from './components/CalendarView'
 import { EntryDialog } from './components/EntryDialog'
 import { ProjectsPanel } from './components/ProjectsPanel'
 import { TimerPanel } from './components/TimerPanel'
+import { ReportDialog } from './components/ReportDialog'
 import type { UtcRange } from '../shared/calendar'
 import { formatLocalTime, snapRangeUtc, toZ } from '../shared/calendar'
 import type { PlatformApi } from '../platform/api'
@@ -15,6 +16,7 @@ import { plannedForRange } from '../shared/planning'
 type Dialog =
   | { kind: 'none' }
   | { kind: 'projects' }
+  | { kind: 'report' }
   | { kind: 'create'; range: UtcRange }
   | { kind: 'edit'; entryId: string }
 
@@ -67,7 +69,7 @@ export function App({ platform }: { platform: PlatformApi }): JSX.Element {
         setDialog({ kind: 'create', range: snapRangeUtc(toZ(anchor), toZ(anchor + 3_600_000)) })
       } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') {
         e.preventDefault()
-        useStore.setState({ banner: 'Экспорт CSV появится на этапе M4 (клавиша уже перехвачена)' })
+        setDialog({ kind: 'report' }) // M4: экспорт — кнопкой в отчёте (без неожиданных записей на диск)
       } else if (e.key === ' ' && !mod && !e.repeat && !inField) {
         e.preventDefault() // Space не должен скроллить страницу, когда он горячая клавиша
         useStore.getState().toggleTimer()
@@ -91,6 +93,9 @@ export function App({ platform }: { platform: PlatformApi }): JSX.Element {
           <span className="badge">платформа: {platform.kind}</span>
           <button type="button" className="ghost" onClick={() => setDialog({ kind: 'projects' })}>
             Проекты
+          </button>
+          <button type="button" className="ghost" data-testid="open-report" onClick={() => setDialog({ kind: 'report' })}>
+            Отчёт
           </button>
           <label className="field-inline">
             <input
@@ -132,6 +137,7 @@ export function App({ platform }: { platform: PlatformApi }): JSX.Element {
       )}
 
       {dialog.kind === 'projects' && <ProjectsPanel onClose={() => setDialog({ kind: 'none' })} />}
+      {dialog.kind === 'report' && <ReportDialog onClose={() => setDialog({ kind: 'none' })} />}
       {dialog.kind === 'create' && (
         <EntryDialog entry={null} initial={dialog.range} onClose={() => setDialog({ kind: 'none' })} />
       )}

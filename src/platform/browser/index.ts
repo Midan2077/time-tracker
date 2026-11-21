@@ -38,8 +38,18 @@ export function createBrowserPlatform(): PlatformApi {
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(validated))
     },
-    // Трея, хоткеев и системных уведомлений в браузере нет (ТЗ §5 — исключение
-    // из «того же набора фич»): интерфейс соблюдён no-op'ами.
+    // Экспорт в браузере — download-ссылка (ТЗ §5); диалога сохранения нет, «путь» — имя.
+    async exportCsv(job) {
+      const url = URL.createObjectURL(new Blob([job.content], { type: 'text/csv;charset=utf-8' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = job.suggestedName
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      return { kind: 'saved', path: job.suggestedName }
+    },
+    // Трея и хоткеев в браузере нет (ТЗ §5 — исключение из «того же набора фич»):
+    // интерфейс соблюдён no-op'ами; системных уведомлений/планировщика тоже нет.
     setTimerActive: () => undefined,
     onTimerCommand: () => undefined,
     onReminderFired: () => undefined,

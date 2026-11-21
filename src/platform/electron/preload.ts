@@ -30,6 +30,7 @@ const bridge: PlatformApi = {
       }
     })
   },
+  exportCsv: (job) => ipcRenderer.invoke('csv:export', job) as Promise<{ kind: 'saved'; path: string } | { kind: 'cancelled' }>,
 }
 
 contextBridge.exposeInMainWorld('tzPlatform', bridge)

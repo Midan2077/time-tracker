@@ -9,6 +9,8 @@ import { emptyDb, validateDb, MAX_NAME_LENGTH, MAX_NOTE_LENGTH, type DbFile, typ
 import { toZ } from '../shared/calendar'
 import { timerStopRange } from '../shared/timer'
 import { resetReminderOnTimeChange } from '../shared/reminders'
+import { reportCsv, reportFileName } from '../shared/csv'
+import type { UtcRange } from '../shared/calendar'
 import type { LoadOutcome, PlatformApi } from '../platform/api'
 
 export type Phase = 'loading' | 'ready' | 'readonly'
@@ -58,6 +60,7 @@ type StoreActions = {
   updateEntry: (id: string, patch: EntryPatch) => void
   deleteEntry: (id: string) => void
   updateSettings: (patch: Partial<Settings>) => void
+  exportReport: (range: UtcRange) => Promise<void>
   markReminderFired: (entryId: string, firedAt: string) => void
   startTimer: (input: { projectId: string | null; title: string }) => void
   stopTimer: () => void
@@ -258,6 +261,24 @@ export const useStore = create<Store>((set, get) => {
 
     updateSettings: (patch) =>
       mutate('настройки', (db) => ({ ...db, settings: { ...db.settings, ...patch } })),
+
+    // M4: CSV формирует shared (разделитель/экранирование/BOM), платформа пишет файл.
+    async exportReport(range) {
+      const p = get().platform
+      if (p === null) return
+      const db = get().db
+      const content = reportCsv(db.entries, db.projects, range.start, range.end, new Date().toISOString())
+      try {
+        const res = await p.exportCsv({ suggestedName: reportFileName(range.start, range.end), content })
+        if (res.kind === 'saved') {
+          set({ banner: null, saveError: null, statusText: `отчёт сохранён: ${res.path}` })
+        } else {
+          set({ statusText: 'экспорт отменён' })
+        }
+      } catch (e) {
+        set({ saveError: `экспорт: ${e instanceof Error ? e.message : String(e)}` })
+      }
+    },
 
     // М3.5: платформа сигналит — store (единый писатель) ставит reminderFiredAt.
     // Идемпотентно: уже помеченный блок не перезаписываем и не плодим сохранение.

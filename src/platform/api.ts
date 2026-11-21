@@ -40,4 +40,7 @@ export interface PlatformApi {
   // Сигнал наступил: UI обязан пометить reminderFiredAt (единый писатель файла — store).
   // show=false — просрочено дальше cutoff: не показываем, только помечаем (ТЗ §4).
   onReminderFired(cb: (payload: { entryId: string; firedAt: string; show: boolean }) => void): void
+  // --- M4: экспорт CSV. Готовое содержимое формирует shared/csv (UI не знает про ФС):
+  // десктоп — системный диалог сохранения (ТЗ §6), браузер — download-ссылка (ТЗ §5). ---
+  exportCsv(job: { suggestedName: string; content: string }): Promise<{ kind: 'saved'; path: string } | { kind: 'cancelled' }>
 }
